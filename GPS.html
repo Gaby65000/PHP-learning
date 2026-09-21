@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Waze-like - Prototype HTML</title>
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- Tailwind CSS (via CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Font Awesome pour les icônes -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <style>
+    /* Correction pour les icônes Leaflet */
+    .leaflet-container {
+      height: 100%;
+      width: 100%;
+    }
+    /* Style personnalisé pour les marqueurs */
+    .traffic-marker-high {
+      background-color: #ef4444 !important;
+    }
+    .traffic-marker-medium {
+      background-color: #f97316 !important;
+    }
+    .traffic-marker-low {
+      background-color: #3b82f6 !important;
+    }
+    /* Style pour le panneau latéral */
+    .sidebar {
+      transition: transform 0.3s ease;
+    }
+    @media (max-width: 768px) {
+      .sidebar {
+        transform: translateX(-100%);
+      }
+      .sidebar.open {
+        transform: translateX(0);
+      }
+    }
+  </style>
+</head>
+<body class="h-screen w-full overflow-hidden bg-gray-100">
+  <!-- Barre de navigation supérieure -->
+  <header class="bg-blue-600 text-white p-4 shadow-md flex justify-between items-center">
+    <div class="flex items-center gap-3">
+      <h1 class="text-xl font-bold">Waze-like</h1>
+      <button id="toggleSidebar" class="p-2 rounded-md hover:bg-blue-700">
+        <i class="fas fa-bars"></i>
+      </button>
+    </div>
+    <div class="flex gap-2">
+      <button id="locateMe" class="p-2 rounded-md hover:bg-blue-700" title="Me localiser">
+        <i class="fas fa-location-arrow"></i>
+      </button>
+      <button id="clearRoute" class="p-2 rounded-md hover:bg-blue-700" title="Effacer l'itinéraire">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Conteneur principal -->
+  <div class="flex h-[calc(100vh-64px)]">
+    <!-- Panneau latéral (Alertes Trafic) -->
+    <aside id="sidebar" class="sidebar w-72 bg-white shadow-lg p-4 z-20">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="font-bold text-lg">
+          <i class="fas fa-exclamation-triangle text-amber-500 mr-2"></i>
+          Alertes Trafic
+        </h2>
+        <button id="closeSidebar" class="p-1 rounded-md hover:bg-gray-100">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div id="trafficAlertsList" class="space-y-2 max-h-[calc(100vh-180px)] overflow-y-auto">
+        <!-- Les alertes seront ajoutées dynamiquement ici -->
+        <p class="text-sm text-gray-500">Aucune alerte à proximité.</p>
+      </div>
+    </aside>
+
+    <!-- Conteneur de la carte -->
+    <div class="flex-1 relative">
+      <!-- Barre de recherche -->
+      <div class="absolute top-4 left-1/2 transform -translate-x-1/2 z-10 w-11/12 max-w-2xl">
+        <form id="searchForm" class="flex gap-2 bg-white p-2 rounded-lg shadow-lg">
+          <input
+            type="text"
+            id="searchInput"
+            placeholder="Rechercher une adresse (ex: Tour Eiffel)..."
+            class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            autocomplete="off"
+          />
+          <button
+            type="submit"
+            class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none"
+          >
+            <i class="fas fa-search"></i>
+          </button>
+        </form>
+      </div>
+
+      <!-- Carte Leaflet -->
+      <div id="map" class="h-full w-full"></div>
+
+      <!-- Bouton pour signaler une alerte (mobile) -->
+      <button id="reportAlertBtn" class="absolute bottom-4 right-4 z-10 bg-red-500 text-white px-4 py-2 rounded-full shadow-lg hover:bg-red-600">
+        <i class="fas fa-exclamation-triangle mr-2"></i>
+        Signaler
+      </button>
+
+      <!-- Instructions -->
+      <div class="absolute bottom-4 left-4 z-10 bg-white p-3 rounded-lg shadow-lg max-w-xs">
+        <div class="flex items-start gap-2">
+          <i class="fas fa-info-circle text-blue-500 mt-1"></i>
+          <div>
+            <p class="font-semibold text-sm">Prototype Waze-like</p>
+            <ul class="text-xs text-gray-600 list-disc pl-4 mt-1">
+              <li>Recherchez une adresse (ex: "Tour Eiffel").</li>
+              <li>Cliquez sur la carte pour ajouter une alerte.</li>
+              <li>Utilisez le bouton <span class="text-red-500"><i class="fas fa-exclamation-triangle"></i> Signaler</span> pour ajouter une alerte.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modale pour signaler une alerte -->
+  <div id="reportAlertModal" class="fixed inset-0 bg-black bg-opacity-50 z-30 hidden items-center justify-center p-4">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-lg font-bold">
+          <i class="fas fa-exclamation-triangle text-red-500 mr-2"></i>
+          Signaler une alerte
+        </h2>
+        <button id="closeModal" class="p-1 rounded-md hover:bg-gray-100">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <form id="reportAlertForm">
+        <div class="mb-4">
+          <label for="alertType" class="block text-sm font-medium text-gray-700 mb-1">Type d'alerte</label>
+          <select
+            id="alertType"
+            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            required
+          >
+            <option value="slowdown">Ralentissement</option>
+            <option value="accident">Accident</option>
+            <option value="construction">Travaux</option>
+            <option value="police">Police / Radar</option>
+            <option value="hazard">Danger (objet sur la route)</option>
+            <option value="speedcam">Radar automatique</option>
+          </select>
+        </div>
+        <div class="mb-4">
+          <label for="alertDescription" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+          <textarea
+            id="alertDescription"
+            rows="3"
+            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Décrivez l'incident..."
+            required
+          ></textarea>
+        </div>
+        <div class="mb-4">
+          <label for="alertSeverity" class="block text-sm font-medium text-gray-700 mb-1">Sévérité</label>
+          <select
+            id="alertSeverity"
+            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            required
+          >
+            <option value="low">Faible</option>
+            <option value="medium" selected>Moyenne</option>
+            <option value="high">Élevée</option>
+          </select>
+        </div>
+        <div class="flex gap-2">
+          <button
+            type="button"
+            id="cancelReport"
+            class="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300"
+          >
+            Annuler
+          </button>
+          <button
+            type="submit"
+            class="flex-1 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+          >
+            Signaler
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Script principal -->
+  <script>
+    // Variables globales
+    let map;
+    let userMarker;
+    let routeLayer;
+    let trafficMarkers = [];
+    let userLocation = null;
+    let selectedPosition = null;
+
+    // Données mockées pour les alertes trafic
+    const mockTrafficAlerts = [
+      {
+        id: 1,
+        position: [48.8584, 2.2945],
+        type: "Bouchon",
+        description: "Ralentissement dû à un accident sur l'A13",
+        severity: "high",
+      },
+      {
+        id: 2,
+        position: [48.8606, 2.3376],
+        type: "Travaux",
+        description: "Travaux sur le boulevard Haussmann",
+        severity: "medium",
+      },
+      {
+        id: 3,
+        position: [48.8489, 2.3467],
+        type: "Radar",
+        description: "Radar automatique signalé",
+        severity: "low",
+      },
+    ];
+
+    // Initialisation de la carte
+    function initMap() {
+      // Centre par défaut (Paris)
+      const defaultCenter = [48.8566, 2.3522];
+      const defaultZoom = 13;
+
+      // Initialisation de la carte
+      map = L.map('map').setView(defaultCenter, defaultZoom);
+
+      // Ajout de la couche OpenStreetMap
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(map);
+
+      // Gestion du clic sur la carte
+      map.on('click', function(e) {
+        selectedPosition = [e.latlng.lat, e.latlng.lng];
+        document.getElementById('reportAlertModal').classList.remove('hidden');
+        document.getElementById('reportAlertModal').classList.add('flex');
+      });
+
+      // Gestion du déplacement de la carte (pour mettre à jour les alertes)
+      map.on('moveend', function() {
+        updateTrafficAlerts();
+      });
+
+      // Initialisation de la géolocalisation
+      initGeolocation();
+    }
+
+    // Géolocalisation
+    function initGeolocation() {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          function(position) {
+            userLocation = [position.coords.latitude, position.coords.longitude];
+            // Centrer la carte sur la position de l'utilisateur
+            map.setView(userLocation, 15);
+
+            // Ajouter un marqueur pour l'utilisateur
+            if (userMarker) {
+              map.removeLayer(userMarker);
+            }
+            userMarker = L.marker(userLocation).addTo(map)
+              .bindPopup("Vous êtes ici")
+              .openPopup();
+          },
+          function(error) {
+            console.error("Erreur de géolocalisation:", error);
+            alert("Impossible de détecter votre position. Utilisation de Paris par défaut.");
+            userLocation = [48.8566, 2.3522];
+          },
+          { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+        );
+      } else {
+        alert("La géolocalisation n'est pas prise en charge par votre navigateur.");
+      }
+    }
+
+    // Mise à jour des alertes trafic
+    function updateTrafficAlerts() {
+      const bounds = map.getBounds();
+      const minLat = bounds.getSouth();
+      const maxLat = bounds.getNorth();
+      const minLng = bounds.getWest();
+      const maxLng = bounds.getEast();
+
+      // Filtrer les alertes dans la zone visible
+      const visibleAlerts = mockTrafficAlerts.filter(alert => {
+        return (
+          alert.position[0] >= minLat &&
+          alert.position[0] <= maxLat &&
+          alert.position[1] >= minLng &&
+          alert.position[1] <= maxLng
+        );
+      });
+
+      // Mettre à jour la liste dans le panneau latéral
+      const alertsList = document.getElementById('trafficAlertsList');
+      if (visibleAlerts.length === 0) {
+        alertsList.innerHTML = '<p class="text-sm text-gray-500">Aucune alerte à proximité.</p>';
+      } else {
+        alertsList.innerHTML = visibleAlerts.map(alert => `
+          <div class="p-2 rounded text-sm ${getSeverityClass(alert.severity)}">
+            <div class="font-semibold">${alert.type}</div>
+            <div>${alert.description}</div>
+          </div>
+        `).join('');
+      }
+
+      // Mettre à jour les marqueurs sur la carte
+      clearTrafficMarkers();
+      visibleAlerts.forEach(alert => {
+        addTrafficMarker(alert);
+      });
+    }
+
+    // Ajouter un marqueur pour une alerte trafic
+    function addTrafficMarker(alert) {
+      const iconUrl = getIconUrl(alert.severity);
+      const marker = L.marker(alert.position, {
+        icon: L.icon({
+          iconUrl: iconUrl,
+          iconSize: [25, 41],
+          iconAnchor: [12, 41],
+          popupAnchor: [1, -34],
+        })
+      }).addTo(map)
+        .bindPopup(`
+          <div>
+            <div class="font-bold">${alert.type}</div>
+            <div>${alert.description}</div>
+          </div>
+        `);
+
+      trafficMarkers.push(marker);
+    }
+
+    // Supprimer tous les marqueurs de trafic
+    function clearTrafficMarkers() {
+      trafficMarkers.forEach(marker => {
+        map.removeLayer(marker);
+      });
+      trafficMarkers = [];
+    }
+
+    // Obtenir l'URL de l'icône en fonction de la sévérité
+    function getIconUrl(severity) {
+      switch (severity) {
+        case 'high': return 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png';
+        case 'medium': return 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png';
+        default: return 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png';
+      }
+    }
+
+    // Obtenir la classe CSS en fonction de la sévérité
+    function getSeverityClass(severity) {
+      switch (severity) {
+        case 'high': return 'bg-red-50 border border-red-200 text-red-800';
+        case 'medium': return 'bg-amber-50 border border-amber-200 text-amber-800';
+        default: return 'bg-blue-50 border border-blue-200 text-blue-800';
+      }
+    }
+
+    // Recherche d'itinéraire (mockée)
+    async function searchRoute(query) {
+      // Géocodage mocké (simplifié)
+      let coords;
+      if (query.toLowerCase().includes('tour eiffel')) {
+        coords = [48.8584, 2.2945];
+      } else if (query.toLowerCase().includes('champs élysées')) {
+        coords = [48.8667, 2.3167];
+      } else if (query.toLowerCase().includes('notre dame')) {
+        coords = [48.852968, 2.349903];
+      } else {
+        alert(`Adresse "${query}" non reconnue. Essayez "Tour Eiffel" ou "Champs Élysées".`);
+        return;
+      }
+
+      if (!userLocation) {
+        alert("Votre position n'est pas disponible.");
+        return;
+      }
+
+      // Itinéraire mocké (ligne droite simplifiée)
+      const route = [userLocation, coords];
+      drawRoute(route);
+    }
+
+    // Dessiner l'itinéraire sur la carte
+    function drawRoute(route) {
+      // Supprimer l'ancien itinéraire
+      if (routeLayer) {
+        map.removeLayer(routeLayer);
+      }
+
+      // Dessiner le nouvel itinéraire
+      routeLayer = L.polyline(route, { color: '#2563eb', weight: 5 }).addTo(map);
+
+      // Centrer la carte sur l'itinéraire
+      map.fitBounds(L.latLngBounds(route), { padding: [50, 50] });
+    }
+
+    // Effacer l'itinéraire
+    function clearRoute() {
+      if (routeLayer) {
+        map.removeLayer(routeLayer);
+        routeLayer = null;
+      }
+    }
+
+    // Initialisation au chargement de la page
+    document.addEventListener('DOMContentLoaded', function() {
+      initMap();
+
+      // Écouteurs d'événements
+      document.getElementById('searchForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const query = document.getElementById('searchInput').value;
+        searchRoute(query);
+      });
+
+      document.getElementById('locateMe').addEventListener('click', function() {
+        if (userLocation) {
+          map.setView(userLocation, 15);
+          if (userMarker) {
+            userMarker.openPopup();
+          }
+        } else {
+          initGeolocation();
+        }
+      });
+
+      document.getElementById('clearRoute').addEventListener('click', clearRoute);
+
+      // Toggle sidebar
+      document.getElementById('toggleSidebar').addEventListener('click', function() {
+        document.getElementById('sidebar').classList.toggle('open');
+      });
+
+      document.getElementById('closeSidebar').addEventListener('click', function() {
+        document.getElementById('sidebar').classList.remove('open');
+      });
+
+      // Modale pour signaler une alerte
+      document.getElementById('reportAlertBtn').addEventListener('click', function() {
+        if (!selectedPosition) {
+          selectedPosition = userLocation || [48.8566, 2.3522];
+        }
+        document.getElementById('reportAlertModal').classList.remove('hidden');
+        document.getElementById('reportAlertModal').classList.add('flex');
+      });
+
+      document.getElementById('closeModal').addEventListener('click', function() {
+        document.getElementById('reportAlertModal').classList.add('hidden');
+        document.getElementById('reportAlertModal').classList.remove('flex');
+      });
+
+      document.getElementById('cancelReport').addEventListener('click', function() {
+        document.getElementById('reportAlertModal').classList.add('hidden');
+        document.getElementById('reportAlertModal').classList.remove('flex');
+      });
+
+      document.getElementById('reportAlertForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const type = document.getElementById('alertType').value;
+        const description = document.getElementById('alertDescription').value;
+        const severity = document.getElementById('alertSeverity').value;
+
+        // Ajouter la nouvelle alerte aux mockées
+        const newAlert = {
+          id: Date.now(),
+          position: selectedPosition,
+          type: type,
+          description: description,
+          severity: severity,
+        };
+        mockTrafficAlerts.push(newAlert);
+
+        // Mettre à jour les alertes sur la carte
+        updateTrafficAlerts();
+
+        // Fermer la modale
+        document.getElementById('reportAlertModal').classList.add('hidden');
+        document.getElementById('reportAlertModal').classList.remove('flex');
+
+        // Réinitialiser le formulaire
+        document.getElementById('reportAlertForm').reset();
+
+        // Message de succès
+        alert("Alerte signalée avec succès !");
+      });
+
+      // Initialiser les alertes trafic
+      updateTrafficAlerts();
+    });
+  </script>
+</body>
+</html>
