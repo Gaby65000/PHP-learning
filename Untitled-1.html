@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nova - Fausse IA</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --background: #101426;
+            --panel: #1b2240;
+            --panel-light: #252e52;
+            --primary: #8574ff;
+            --text: #f5f6ff;
+            --muted: #adb5d4;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            display: grid;
+            place-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            color: var(--text);
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #101426, #202b52);
+        }
+
+        .chat {
+            display: flex;
+            flex-direction: column;
+            width: min(720px, 100%);
+            height: min(720px, 90vh);
+            overflow: hidden;
+            border: 1px solid #39436d;
+            border-radius: 20px;
+            background: rgba(27, 34, 64, .95);
+            box-shadow: 0 24px 70px rgba(0, 0, 0, .35);
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 22px 25px;
+            border-bottom: 1px solid #39436d;
+        }
+
+        h1 { margin: 0; font-size: 20px; }
+        header p { margin: 5px 0 0; color: var(--muted); font-size: 13px; }
+        .online { color: #63e6be; font-size: 12px; }
+
+        #messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 25px;
+        }
+
+        .message {
+            max-width: 80%;
+            margin-bottom: 16px;
+            padding: 12px 16px;
+            border-radius: 16px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+        }
+
+        .bot { border-top-left-radius: 4px; background: var(--panel-light); }
+        .user { margin-left: auto; border-top-right-radius: 4px; background: var(--primary); }
+        .typing { color: var(--muted); font-style: italic; }
+
+        .suggestions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 0 25px 15px;
+        }
+
+        .suggestions button, .new-chat {
+            border: 1px solid #59648f;
+            border-radius: 10px;
+            padding: 9px 12px;
+            color: var(--text);
+            background: transparent;
+            cursor: pointer;
+        }
+
+        .suggestions button:hover, .new-chat:hover { background: #303a66; }
+
+        form {
+            display: flex;
+            gap: 10px;
+            padding: 18px 25px 25px;
+            border-top: 1px solid #39436d;
+        }
+
+        textarea {
+            flex: 1;
+            min-height: 44px;
+            max-height: 120px;
+            padding: 12px;
+            resize: none;
+            border: 1px solid #59648f;
+            border-radius: 12px;
+            outline: none;
+            color: var(--text);
+            background: #11172c;
+            font: inherit;
+        }
+
+        textarea:focus { border-color: var(--primary); }
+        .send { padding: 0 18px; border: 0; border-radius: 12px; color: white; background: var(--primary); cursor: pointer; font-size: 20px; }
+        .send:disabled { opacity: .45; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <main class="chat">
+        <header>
+            <div>
+                <h1>✦ Nova</h1>
+                <p>Ta fausse intelligence artificielle</p>
+            </div>
+            <span class="online">● En ligne</span>
+            <button class="new-chat" id="newChat">Nouveau</button>
+        </header>
+
+        <section id="messages" aria-live="polite"></section>
+
+        <div class="suggestions">
+            <button type="button">Explique-moi PHP</button>
+            <button type="button">Donne-moi une idée de projet</button>
+            <button type="button">Raconte-moi une blague</button>
+            <button type="button">Fais-moi jouer à un jeu</button>
+        </div>
+
+        <form id="chatForm">
+            <textarea id="question" rows="1" placeholder="Écris ta question..." aria-label="Question"></textarea>
+            <button class="send" type="submit" disabled aria-label="Envoyer">↑</button>
+        </form>
+    </main>
+
+    <script>
+        const messages = document.querySelector('#messages');
+        const form = document.querySelector('#chatForm');
+        const question = document.querySelector('#question');
+        const send = document.querySelector('.send');
+        const storageKey = 'nova-conversation';
+        const memoryKey = 'nova-memory';
+        const initialMessage = 'Bonjour ! Je suis Nova. Je fonctionne entièrement hors ligne : je peux discuter, calculer, donner la date et retenir ton prénom sur cet appareil.';
+        let memory = JSON.parse(localStorage.getItem(memoryKey) || '{}');
+        let game = null;
+
+        function addMessage(text, author) {
+            const message = document.createElement('div');
+            message.className = `message ${author}`;
+            message.textContent = text;
+            messages.appendChild(message);
+            messages.scrollTop = messages.scrollHeight;
+            saveConversation();
+        }
+
+        function saveConversation() {
+            localStorage.setItem(storageKey, messages.innerHTML);
+            localStorage.setItem(memoryKey, JSON.stringify(memory));
+        }
+
+        function calculate(expression) {
+            const clean = expression.replace(',', '.').replace(/[^0-9+\-*/().%\s]/g, '');
+            if (!clean || !/^[0-9+\-*/().%\s]+$/.test(clean)) return null;
+            const tokens = clean.match(/\d+(?:\.\d+)?|[()+\-*/%]/g) || [];
+            const values = [], operators = [];
+            const priority = { '+': 1, '-': 1, '*': 2, '/': 2, '%': 2 };
+            const apply = () => {
+                const operator = operators.pop(), right = values.pop(), left = values.pop();
+                if (operator === '/' && right === 0) throw new Error('division par zéro');
+                values.push(operator === '+' ? left + right : operator === '-' ? left - right :
+                    operator === '*' ? left * right : operator === '/' ? left / right : left % right);
+            };
+            for (const token of tokens) {
+                if (!Number.isNaN(Number(token))) values.push(Number(token));
+                else if (token === '(') operators.push(token);
+                else if (token === ')') {
+                    while (operators.at(-1) !== '(') apply();
+                    operators.pop();
+                } else {
+                    while (operators.length && operators.at(-1) !== '(' && priority[operators.at(-1)] >= priority[token]) apply();
+                    operators.push(token);
+                }
+            }
+            while (operators.length) apply();
+            return values.length === 1 && Number.isFinite(values[0]) ? values[0] : null;
+        }
+
+        function getAnswer(text) {
+            const value = text.toLowerCase().trim();
+            const name = text.match(/(?:je m'appelle|mon nom est)\s+([a-zÀ-ÿ'-]+)/i);
+            const startsGame = value.includes('jeu') || value.includes('jouer') || value.includes('devinette');
+            const stopsGame = value.includes('abandon') || value.includes('arrête le jeu') || value.includes('stop jeu');
+
+            if (stopsGame && game) {
+                game = null;
+                return 'Partie arrêtée. Dis « joue à un jeu » quand tu veux recommencer.';
+            }
+            if (startsGame && !game) {
+                game = { target: Math.floor(Math.random() * 20) + 1, attempts: 0 };
+                return '🎮 C’est parti ! J’ai choisi un nombre entre 1 et 20. Essaie de le deviner en écrivant un nombre. Je te donnerai un indice !';
+            }
+            if (game) {
+                const guess = Number(value.match(/\d+/)?.[0]);
+                if (!Number.isInteger(guess) || guess < 1 || guess > 20) {
+                    return 'Pendant la partie, écris un nombre entier entre 1 et 20. Tu peux aussi dire « abandon » pour arrêter.';
+                }
+                game.attempts++;
+                if (guess === game.target) {
+                    const attempts = game.attempts;
+                    game = null;
+                    return `🎉 Bravo ! Tu as trouvé le nombre ${guess} en ${attempts} essai${attempts > 1 ? 's' : ''}. Dis « rejouer » pour une nouvelle partie.`;
+                }
+                return guess < game.target
+                    ? `Ce n’est pas ${guess}. Mon nombre est plus grand ! (Essai ${game.attempts})`
+                    : `Ce n’est pas ${guess}. Mon nombre est plus petit ! (Essai ${game.attempts})`;
+            }
+            if (name) {
+                memory.name = name[1];
+                return `Enchantée, ${memory.name} ! Je retiendrai ton prénom sur cet appareil.`;
+            }
+            if (value.includes('quel est mon nom') || value.includes('tu te souviens de mon nom')) {
+                return memory.name ? `Tu t'appelles ${memory.name}.` : 'Tu ne m’as pas encore donné ton prénom.';
+            }
+            if (/^(calc(ule)?|combien font|calcule)/.test(value)) {
+                const result = calculate(value.replace(/^(calc(ule)?|combien font|calcule)\s*/, '').replace(/[?=]/g, ''));
+                return result === null ? 'Je ne comprends pas ce calcul. Essaie par exemple : « calcule 12 * (4 + 2) ».'
+                    : `Le résultat est ${result}.`;
+            }
+            if (value === 'aide' || value.includes('que sais-tu faire')) return 'Je peux répondre sur PHP et le web, effectuer des calculs, donner la date et l’heure, raconter une blague, retenir ton prénom et conserver cette conversation dans ton navigateur.';
+            if (value.includes('heure')) return `Il est ${new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit' }).format(new Date())}.`;
+            if (value.includes('date') || value.includes('quel jour')) return `Nous sommes le ${new Intl.DateTimeFormat('fr-FR', { dateStyle: 'full' }).format(new Date())}.`;
+            if (value.includes('php')) return 'PHP est un langage exécuté sur un serveur. Il permet de créer des pages web dynamiques et de traiter des formulaires.';
+            if (value.includes('projet')) return 'Tu pourrais créer une liste de tâches, une calculatrice ou un mini site météo avec HTML, CSS et JavaScript.';
+            if (value.includes('blague')) return 'Pourquoi les développeurs aiment-ils le mode sombre ? Parce que la lumière attire les bugs !';
+            if (value.includes('bonjour') || value.includes('salut')) return memory.name ? `Bonjour ${memory.name} ! Que veux-tu apprendre ?` : 'Bonjour ! Que veux-tu apprendre ?';
+            if (value.includes('merci')) return 'Avec plaisir !';
+            return 'Je peux fonctionner sans Internet. Essaie « aide », « quelle heure est-il ? », « calcule 12 * 4 » ou parle-moi de PHP.';
+        }
+
+        function ask(text) {
+            text = text.trim();
+            if (!text) return;
+            addMessage(text, 'user');
+            question.value = '';
+            question.style.height = 'auto';
+            send.disabled = true;
+            const typing = document.createElement('div');
+            typing.className = 'message bot typing';
+            typing.textContent = 'Nova réfléchit...';
+            messages.appendChild(typing);
+            messages.scrollTop = messages.scrollHeight;
+            setTimeout(() => {
+                typing.remove();
+                addMessage(getAnswer(text), 'bot');
+            }, 500);
+        }
+
+        form.addEventListener('submit', event => {
+            event.preventDefault();
+            ask(question.value);
+        });
+
+        question.addEventListener('input', () => {
+            question.style.height = 'auto';
+            question.style.height = `${Math.min(question.scrollHeight, 120)}px`;
+            send.disabled = !question.value.trim();
+        });
+
+        question.addEventListener('keydown', event => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                form.requestSubmit();
+            }
+        });
+
+        document.querySelectorAll('.suggestions button').forEach(button => {
+            button.addEventListener('click', () => ask(button.textContent));
+        });
+
+        document.querySelector('#newChat').addEventListener('click', () => {
+            messages.innerHTML = `<div class="message bot">${initialMessage}</div>`;
+            localStorage.removeItem(storageKey);
+            question.focus();
+        });
+
+        messages.innerHTML = localStorage.getItem(storageKey) || `<div class="message bot">${initialMessage}</div>`;
+    </script>
+</body>
+</html>
